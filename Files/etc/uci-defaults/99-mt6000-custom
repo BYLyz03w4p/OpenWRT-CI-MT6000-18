@@ -1,7 +1,11 @@
 #!/bin/sh
 # GL-MT6000 首次启动个性化设置
 
-#---------- 系统 ----------
+
+# ============================================================
+# 系统
+# ============================================================
+
 uci -q batch <<-EOF
 	set system.@system[0].hostname='GLMT6000_18'
 	set system.@system[0].timezone='CST-8'
@@ -9,59 +13,151 @@ uci -q batch <<-EOF
 	set system.@system[0].ttylogin='0'
 	set system.@system[0].log_size='128'
 	set system.@system[0].urandom_seed='0'
+
 	delete system.ntp
 	set system.ntp=timeserver
 	set system.ntp.enabled='1'
 	set system.ntp.enable_server='0'
+
 	add_list system.ntp.server='ntp.tencent.com'
 	add_list system.ntp.server='ntp.aliyun.com'
 	add_list system.ntp.server='ntp.ntsc.ac.cn'
 	add_list system.ntp.server='ntp.tuna.tsinghua.edu.cn'
+
 	commit system
 EOF
 
-#---------- root 默认密码 ----------
-# 密码：admin（MD5-crypt 哈希，必须用单引号，双引号会被 shell 展开成空密码）
-# 换密码用：openssl passwd -1 你的新密码
-sed -i 's|^root:[^:]*:|root:$1$Op3nWrtX$l7bDHUU8J8QiMrMHTsaL51:|' /etc/shadow
 
-#---------- 无线 ----------
-# 若无线配置尚未生成，先生成
+# ============================================================
+# root 默认密码
+#
+# 密码：admin
+# MD5-crypt 哈希必须使用单引号，
+# 避免 shell 展开 $ 符号。
+# ============================================================
+
+sed -i \
+	's|^root:[^:]*:|root:$1$Op3nWrtX$l7bDHUU8J8QiMrMHTsaL51:|' \
+	/etc/shadow
+
+
+# ============================================================
+# GL-MT6000 默认无线配置
+#
+# 2.4GHz：
+#   SSID：IMCLY-2G
+#
+# 5GHz：
+#   SSID：IMCLY-5G
+#
+# 加密：
+#   WPA2-PSK
+#   AES / CCMP
+#
+# 密码：
+#   ljx2026@.
+# ============================================================
+
+
+# 如果无线配置尚未生成，先生成
 [ -f /etc/config/wireless ] || /sbin/wifi config
 
+
+# OpenWrt 配置函数
 . /lib/functions.sh
 
+
+# WiFi 密码
 WIFI_KEY='ljx2026@.'
 
+
+# ============================================================
+# 启用无线设备
+# ============================================================
+
 set_radio() {
+
 	local radio="$1"
+
 	uci -q delete wireless.$radio.disabled
 }
 
+
+# ============================================================
+# 根据频段设置 WiFi
+# ============================================================
+
 set_iface() {
+
 	local iface="$1"
-	local device band ssid
+	local device
+	local band
+	local ssid
+
 
 	config_get device "$iface" device
+
 	[ -n "$device" ] || return 0
 
+
 	band=$(uci -q get wireless.$device.band)
+
+
 	case "$band" in
-		2g) ssid='G5-2G' ;;
-		5g) ssid='G5-5G' ;;
-		6g) ssid='G5-6G' ;;
-		*)  ssid='G5' ;;
+
+		2g)
+			ssid='IMCLY-2G'
+		;;
+
+		5g)
+			ssid='IMCLY-5G'
+		;;
+
+		*)
+			ssid='IMCLY'
+		;;
+
 	esac
 
+
+	# 设置 SSID
 	uci -q set wireless.$iface.ssid="$ssid"
+
+
+	# WPA2-PSK + AES/CCMP
+	#
+	# LuCI 对应：
+	# WPA2-PSK（强安全性）
 	uci -q set wireless.$iface.encryption='psk2+ccmp'
+
+
+	# 设置 WiFi 密码
 	uci -q set wireless.$iface.key="$WIFI_KEY"
+
+
+	# 启用无线接口
 	uci -q delete wireless.$iface.disabled
 }
 
+
+# ============================================================
+# 应用配置
+# ============================================================
+
 config_load wireless
-config_foreach set_radio wifi-device
-config_foreach set_iface wifi-iface
+
+
+config_foreach \
+	set_radio \
+	wifi-device
+
+
+config_foreach \
+	set_iface \
+	wifi-iface
+
+
 uci -q commit wireless
+
 
 exit 0
